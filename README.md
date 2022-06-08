@@ -24,7 +24,7 @@
 
 ### 2.2 Prerequisites
 
->>**Notes:**
+>>**Note:**
 >>
 >>- You will need your windows machine created in previous step.
 >>
