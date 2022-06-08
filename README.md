@@ -24,7 +24,7 @@
 
 ### 2.2 Prerequisites
 
->>**Note:**
+>>**Note**:
 >>
 >>- You will need your windows machine created in previous step.
 >>
@@ -46,7 +46,7 @@
 >
 >    ```bash
 >    ./deploy-infrastructure-prerequisites.sh
->    direnv allow
+>    direnv allow .
 >    ```
 
 ### 2.3 Azure Container Registry (Only when deploying first region)
