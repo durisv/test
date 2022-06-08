@@ -51,7 +51,7 @@
 
 ### 2.3 Azure Container Registry (Only when deploying first region)
 
-> **Note:** you can skip this step, ACR already exists.
+> **Note**: you can skip this step, ACR already exists.
 >
 >1. Sign in with Azure CLI and set subscription. You can find the Tenant ID in the Azure Active Directory blade in the Azure Portal.
 >
@@ -185,7 +185,7 @@
 
 ### 2.5 Jump-server
 
-> **Note:** You can use VS Code and configure your connection using ssh extension.
+> **Note**: You can use VS Code and configure your connection using ssh extension.
 >
 >1. Connect to the jump-server
 >
@@ -280,7 +280,7 @@
 >
 >9. Create ubuntu and kubernetes users
 >
->    **Notes:**
+>    **Note**:
 >    - Using the --kubernetes-user flag, the script will create a ubuntu user as well as a kubernetes user. Without the flag, script will create only ubuntu user.
 >    - Username convention is *bielikm, sivakp, moravekm*
 >
@@ -300,7 +300,7 @@
 >
 >10. **Now you can switch to your newly created user and continue installation with this user.**
 >
->     **Note:** If you switched to new user you need to login to `Azure CLI`, set subscription again and add an exception for the installation directory.
+>     **Note**: If you switched to new user you need to login to `Azure CLI`, set subscription again and add an exception for the installation directory.
 >
 >     ```bash
 >     az login --tenant {azure_tenant_id} --allow-no-subscriptions --use-device-code
