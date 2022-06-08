@@ -1,219 +1,339 @@
-# Deployment Guide - Shared & Tenant & Connector
+# Deployment Guide - Azure Resources
 
-## 1. Shared
+## 1. New subscription checklist
 
-1. Edit  dw-settings.json
+### 1.1 Enable Microsoft Defender for Cloud
 
-    ```bash
-    cd /srv/spring22
-    code dw-settings.json # if using VS Code, or any other preferred editor
+>Navigate to Microsoft Defender for Cloud and enable it for new subscription.
 
-    {
-            "resource_group_prefix": "dw",
-            "region": "", # azure region, same as when deploying infrastructure
-            "aks": "aks",
-            "region_resource_group": "{resource_group_prefix}-{region}",
-            "aks_resource_group": "{resource_group_prefix}-{region}-aks-1",
-            "b2c_resource_group": "{resource_group_prefix}-{region}-b2c",
-            "domain": "2ring.cloud",
-            "subscription_id": "", # subscription in which all azure resources reside
-            "tenant_version": "9",
-            "shared_version": "9",
-            "acr": "tworing.azurecr.io" # acr login server
-    }
-    ````
+### 1.2 Enable encryption at host
 
-1. Init shared resources
-**During shared initialization you can encounter port-forward error. This is completely normal and can be ignored.**
-**If you switched user to new user you will be prompted to enter sudo password during script execution.**
+>**Note**: this will be automatically enabled during jump-server VM deployment.
+>
+>```bash
+>az provider register --namespace Microsoft.Compute
+>az feature register --namespace Microsoft.Compute --name EncryptionAtHost
+>```
 
-1. Prepare your **SendGrid API key**, you will be prompted to enter it during initialization.
+## 2. Create Azure Resources
 
-    ```bash
-    cd /srv/spring22/shared
+### 2.1 Internal windows machine
+>
+> 1. Create internal windows machine (with WSL) that will be used to access jump-server
+> 2. Install **VS Code** with **Remote - SSH** extension on your windows machine
 
-    # may ask for sudo password if you switched users
-    ./apply.py --init
-    ```
+### 2.2 Prerequisites
 
-1. Update repository after apply script.
+>>**Note**:
+>>
+>>- You will need your windows machine created in previous step.
+>>
+>>- When using WSL don't extract package to folder mounted from windows. Ideally use your home (~) folder.
+>>
+>>- **We recommend to use VS Code to connect to WSL or your linux machine. You will have available all VS Code tools that way.**
+>>
+>1. Copy **dw-infrastructure.tgz** to your home (~) folder
+>2. Unzip the dw-infrastructure.tgz package
+>
+>    ```bash
+>    cd ~
+>    mkdir dw-infrastructure
+>    tar -xzvf dw-infrastructure.tgz -C dw-infrastructure
+>    cd dw-infrastructure/
+>    ```
+>
+>3. Install the prerequisites (Azure CLI, Azure CLI AKS extension, Python)
+>
+>    ```bash
+>    ./deploy-infrastructure-prerequisites.sh
+>    direnv allow .
+>    ```
 
-    ```bash
-    cd /srv/spring22
-    git add .
-    git commit -a -m "Commit message"
-    git push
-    ```
+### 2.3 Azure Container Registry (Only when deploying first region)
 
-## 2. Tenant
+> **Note**: you can skip this step, ACR already exists.
+>
+>1. Sign in with Azure CLI and set subscription. You can find the Tenant ID in the Azure Active Directory blade in the Azure Portal.
+>
+>    ```bash
+>    az login --tenant {azure_tenant_id} --allow-no-subscriptions --use-device-code
+>    az account set -s {subscription_name}
+>    ```
+>
+>1. Create the DW resource group. Use location values from this command: az account list-locations --output=table.
+>
+>    ```bash
+>    az group create -l {location} -n dw
+>    ```
+>
+>1. Create the Azure Container Registry. Parameter 'name' must conform to the following pattern: '^[a-zA-Z0-9]*$'.
+>
+>    ```bash
+>    az acr create --name {name} --resource-group dw --sku basic
+>    ```
+>
+>1. After the Azure Container Registry is created, push images to the registry (kube/images/push_images_to_production_repository.py).
 
-### 2.1. Create DNS Entry
+### 2.4 DW region Azure resources (Per region)
 
-Right now you should have your tenant_id. We need to create **A record in DNS** for our tenant_id which should point load balancer public ip or public dns name. Both can be find out on load balancer overview section in Azure.
-**e.g. mycompany.2ring.cloud should resolve to Load balancer public ip.**
+> **Note**:  Virtual machine size for larger clusters    - E2as v5
+><https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/>
+>
+>
+>1. Check if you are logged into azure cli
+>
+>    ```bash
+>    # outputs your current context
+>    az account show
+>
+>    # if previous info is incorrect or you are not logged in
+>    az logout
+>    az login --tenant {azure_tenant_id} --allow-no-subscriptions --use-device-code
+>    az account set -s {subscription_name}
+>    ```
+>
+>1. Pick an AZ region
+>
+>     - Pick region from list (value will be from column 'Name' -> output of next command)
+>     - For regions with availability zones support see <https://docs.microsoft.com/en-us/azure/availability-zones/az-overview>
+>
+>       ```bash
+>       az account list-locations --output=table
+>       ```
+>
+>     - For list of available vm sizes run command:
+>
+>       ```bash
+>       az vm list-sizes --location {region} --output=table
+>       ```
+>
+>     - To see vm size availability in zones run:
+>
+>       ```bash
+>       az vm list-skus --all --location {region} --resource-type virtualMachines --size {vm-size} --output table
+>       ```
+>
+>1. Enter the correct AZ region to settings.json
+>
+>    ```bash
+>    code settings.json # if using VS Code, or any other preferred editor
+>
+>    {
+>     "region": "", # azure  region
+>     "aks_node_vm_size": "Standard_D2as_v5", # (Dasv5-series), in large cluster we would want `E2as v5` (Easv5-series)
+>     "kubernetes_version": "1.21.9",
+>     "aks_pools_subnet": "aks_pools_subnet",
+>     "aks_pools_subnet_cidr": "10.1.0.0/16",
+>     "lb_public_ip_dns_name": "r2lb" # optional, can be left empty, availability will be validated
+>    }
+>    ```
+>
+>1. ***Optional***: Edit the default-settings.json configuration file.
+>
+>    ```bash
+>    code default-settings.json # if using VS Code, or any other preferred editor
+>    {
+>        "lb_public_ip": "lb_public_ip",
+>        "aks": "aks",
+>        "resource_group_prefix": "dw",
+>        "region_resource_group": "{resource_group_prefix}-{region}",
+>        "jump_server": "jump-server",
+>        "jump_server_vm_size": "Standard_B1ms",
+>        "nsg": "nsg",
+>        "grafana_waf_policy": "grafana",
+>        "aks_node_count": 3,
+>        "vnet": "vnet",
+>        "vnet_cidr": "10.0.0.0/8",
+>        "vm_subnet": "vm-subnet",
+>        "vm_subnet_cidr": "10.2.0.0/16",
+>        "jump_server_ip": "10.2.0.10",
+>        "b2c_resource_group": "{resource_group_prefix}-{region}-b2c",
+>        "aks_resource_group": "{resource_group_prefix}-{region}-aks-1",
+>        "aks_resource_group_generated": "{resource_group_prefix}-{region}-aks-1-generated",
+>        "storage_account": "r2{region}",
+>        "availability_zone": null, # null if not using zones otherwise use 1 for primary deployment, use 2 for disaster recovery deployment
+>        "nodepool_name": "system"
+>    }
+>    ```
+>
+>
+>1. Create ssh key for jump-server
+>    - Create folder `~/.ssh/jump-server`
+>      - Copy the `id_rsa.pub` key to the `~/.ssh/jump-server` folder. This key will be installed on jump-server VM.
+>      - Copy the `id_rsa` key to the `~/.ssh/jump-server` folder. This key will be used to connect to jump-server VM.
+>    - Run the deploy.py script.
+>
+>      ```bash
+>      cd ~/dw-infrastructure/
+>      ./deploy.py
+>      ```
+>
+>1. Create DNS entry for jump-server pointing to jump-server public IP (can be find out on jump-server overview in azure portal)
+>
+>    ```bash
+>    {region}-jump.2ring.cloud
+>    ```
+>
+> 1. Enable the Azure just-in-time access.
+> 1. In the Azure portal, open the Microsoft Defender for Cloud blade and click the Upgrade button.
+> 1. Open the jump-server blade, choose Configuration and then click the Enable Just-in-time button.
+> 1. In the jump-server blade, click the Connect button, choose SSH, from Source IP select My IP and request the just-in-time access (default
+>3 hours).
+>
+>    ![just_in_time_access.png](./img/just_in_time_access.png)
+>
 
-### 2.2. Check if you are logged into azure cli
+### 2.5 Jump-server
 
-```bash
-# outputs your current context
-az account show
+> **Note**: You can use VS Code and configure your connection using ssh extension.
+>
+>1. Connect to the jump-server
+>
+>    ```bash
+>    ssh -i ~/.ssh/jump-server/id_rsa deploy@{jump_server_dns_name}
+>    ```
+>
+>2. Generate new SSH key pairs that will be used as a deploy keys
+>
+>    ```bash
+>    mkdir ~/.ssh/dw-aks
+>    mkdir ~/.ssh/dw-aks-infrastructure
+>
+>    ssh-keygen -f ~/.ssh/dw-aks/id_rsa -N ""
+>    ssh-keygen -f ~/.ssh/dw-aks-infrastructure/id_rsa -N ""
+>
+>    cat ~/.ssh/dw-aks/id_rsa.pub
+>    cat ~/.ssh/dw-aks-infrastructure/id_rsa.pub
+>    ```
+>
+>3. Upload dw-aks-infrastructure key
+>      - Open this URL: <https://github.com/2Ring/dw-aks-infrastructure>
+>      - Settings -> Security -> Deploy keys
+>      - Create new Deploy key
+>        - Title: subscription name (e.g. dw-us-east)
+>        - Key: Use content of this file: ~/.ssh/dw-aks-infrastructure/id_rsa.pub
+>        - Allow write access: true
+>4. Upload dw-aks key
+>     - Open this URL: <https://github.com/2Ring/dw-aks>
+>     - Settings -> Security -> Deploy keys
+>     - Create new Deploy key
+>       - Title: subscription name (e.g. dw-us-east)
+>       - Key: Use content of this file: ~/.ssh/dw-aks/id_rsa.pub
+>       - Allow write access: true
+>
+>5. Clone the dw-aks and dw-aks-infrastructure repositories
+>
+>     ```bash
+>     sudo mkdir /srv/spring22
+>     sudo mkdir /srv/infrastructure
+>
+>     sudo chmod -R g+rw+s /srv/spring22
+>     sudo chmod -R g+rw+s /srv/infrastructure
+>
+>     sudo chown deploy:deploy /srv/spring22
+>     sudo chown deploy:deploy /srv/infrastructure
+>
+>     git config --global --add advice.detachedHead false
+>     git config --global user.name "Your Name"
+>     git config --global user.email you@example.com
+>
+>     GIT_SSH_COMMAND='ssh -i ~/.ssh/dw-aks/id_rsa -o IdentitiesOnly=yes' git clone -q -b spring22 git@github.com:2Ring/dw-aks.git /srv/spring22
+>
+>     GIT_SSH_COMMAND='ssh -i ~/.ssh/dw-aks-infrastructure/id_rsa -o IdentitiesOnly=yes' git clone -q -b spring22 git@github.com:2Ring/dw-aks-infrastructure.git /srv/infrastructure
+>     ```
+>
+>
+>6. Install the prerequisites. **During installation you will be prompted to log in to your azure subscription**.
+>
+>    ```bash
+>    cd /srv/infrastructure/jump-server-scripts
+>    ./jump-server-prerequisites.sh {azure_tenant_id} {subscription_id} aks {aks_resource_group}
+>    ```
+>
+>
+>7. **Important:** Now you need to logout to refresh your bash console to apply changes made to .bashrc
+>
+>    ```bash
+>    exit
+>    ssh -i ~/.ssh/jump-server/id_rsa deploy@{jump_server_dns_name}
+>    ```
+>
+>
+>8. Create new branch, push local branches to origin
+>
+>    ```bash
+>    cd /srv/infrastructure
+>    git checkout -b {subscription name}
+>    git init --shared=group
+>
+>    git push -u origin {subscription name}
+>    direnv allow .
+>
+>    cd /srv/spring22
+>    git checkout -b {subscription name}
+>    git init --shared=group
+>
+>    git push -u origin {subscription name}
+>    direnv allow .
+>    ```
+>
+>
+>9. Create ubuntu and kubernetes users
+>
+>    **Note**:
+>    - Using the --kubernetes-user flag, the script will create a ubuntu user as well as a kubernetes user. Without the flag, script will create only ubuntu user.
+>    - Username convention is *bielikm, sivakp, moravekm*
+>
+>    ```bash
+>    cd /srv/infrastructure/jump-server-scripts
+>    ./create_user.py --username {name} --kubernetes-user
+>
+>    # script will output password which needs to be saved to safe place
+>
+>    # this newly created user is automatically part of sudo and deploy groups
+>    # script will also create ~/.ssh/authorized_keys for this user with correct permissions
+>
+>    # allow ssh connect
+>    sudo nano /home/{username}/.ssh/authorized_keys
+>    # paste user id_rsa.pub here and save
+>    ```
+>
+>10. **Now you can switch to your newly created user and continue installation with this user.**
+>
+>     **Note**: If you switched to new user you need to login to `Azure CLI`, set subscription again and add an exception for the installation directory.
+>
+>     ```bash
+>     az login --tenant {azure_tenant_id} --allow-no-subscriptions --use-device-code
+>     az account set -s {subscription_name}
+>
+>     git config --global --add safe.directory /srv/spring22
+>     git config --global --add safe.directory /srv/infrastructure
+>
+>     git config --global user.email "you@example.com"
+>     git config --global user.name "Your Name"
+>
+>     direnv allow /srv/spring22
+>     direnv allow /srv/infrastructure
+>     ```
+>
 
-# if previous info is incorrect or you are not logged in
-az logout
-az login --tenant {azure_tenant_id} --allow-no-subscriptions --use-device-code
-az account set -s {subscription_name}
-```
-
-### 2.3 Create new tenant resources
-
-This step will create all tenant files on disk and install database. \
-**During creation of new tenant you can encouter port-forward error when installing database this is completely normal and can be ignored.**
-
-```bash
-# {tenant_id} can consist only from alphanumerical lowercase characters
-# {db_set_index} most of the time should be 0, unless you have more db servers running
-cd /srv/spring22
-./create_new_tenant.py --tenant-id {tenant_id} --db-set-index {db_set_index}
-```
-
-### 2.4 Create B2C tenant
-
-Location and country code can be found here <https://docs.microsoft.com/sk-sk/azure/active-directory-b2c/data-residency>
-locations: `'United States','Europe','Asia Pacific','Australia'`
-country_codes: `e.g. 'US', 'CA' for United States, e.g. 'DE', 'SK' for Europe`
-
-```bash
-# during this script execution you will be prompted to log in to newly created b2c
-# this will reconfigure your current az context to run without subscription which will be switched back during init_admins.py execution
-cd tenants/{tenant_id}
-./init_b2c_tenant.py --location {location} --country-code {coutry_code}
-```
-
-1. Update repositories after init_b2c_tenant script.
-
-    ```bash
-    cd /srv/infrastructure
-    git add .
-    git commit -a -m "Commit message"
-    git push
-
-    cd /srv/spring22
-    git add .
-    git commit -a -m "Commit message"
-    git push
-    ```
-
-2. Manually setup B2C tenant
-
-    2.1 Navigate to the Azure portal and select the newly created Azure AD B2C. You might need to switch current directory to newly created b2c tenant.
-
-    2.2 Select the App Registrations. Click on "Client API" app. On the left side menu, select the Manifest blade.
-
-    ![select_application.png](./img/select_application.png)
-      - Set accessTokenAcceptedVersion property to 2.
-      - Click on Save.
-      - More info:
-      - <https://docs.microsoft.com/en-us/azure/active-directory/develop/id-tokens#claims-in-an-id-token>
-      - <https://docs.microsoft.com/en-us/azure/active-directory/develop/access-tokens#token-formats-and-ownership>
-      - Basically v1 and v2 differ in claims included in token and Microsoft suggets to use v2 in new applications.
-
-        ![access_token_version.png](./img/access_token_version.png)
-
-    2.3 Select the App Registrations. Click on "IdentityExperienceFramework" app. On the left side menu, select API permissions. Grant admin consent for B2C Tenant
-
-    2.4. Select the App Registrations. Click on "ProxyIdentityExperienceFramework" app. On the left side menu, select API permissions. Grant admin consent for B2C Tenant
-
-    ![admin_consent.png](./img/admin_consent.png)
-
-    2.5. Update SignIn userflow
-
-   - Navigate to Azure AD B2C tenant, click User flows and select B2C_1_SignIn
-
-        ![ad_b2c_sign_in_template.png](./img/ad_b2c_sign_in_template.png)
-   - In Application claims blade select these claims: `bu, bua, Display Name, Email Addresses, Given Name, Identity Provider Access Token, mbu, sa, Surname, ta, User's Object ID`
-   - Click Save button
-
-        ![image.png](./img/image.png)
-
-    2.6. Update page layouts
-    - Navigate to Azure AD B2C tenant, click User flows and select B2C_1_SignIn
-
-        ![ad_b2c_sign_in_template.png](./img/ad_b2c_sign_in_template.png)
-    - In Overview blade under Customize section, select Page layouts
-
-        ![ad_b2c_page_layouts.png](./img/ad_b2c_page_layouts.png)
-
-      In page layouts blade do following steps:
-
-        1. Select "Sign in page" row
-        2. Switch "Use custom page content" to "Yes"
-        3. Fill in "Custom page URI" with <https://<tenant_id>>.<domain>/templates/index.html
-        4. Click Save button
-        5. Repeat previous steps for following rows:
-
-            - Update expired password page
-            - Forgot password page
-            - Change password page
-
-           ![ad_b2c_page_layouts_custom_page.png](./img/ad_b2c_page_layouts_custom_page.png)
-
-    - Add additional users as B2C Global admins (Optional)
-
-        1. In portal navigate to new Azure AD B2C tenant.
-        2. Open the Users blade and click New user.
-        3. Choose Invite user, fill in Email address and under Groups and roles click User.
-
-           ![ad_b2c_new_user.png](./img/ad_b2c_new_user.png)
-           ![ad_b2c_new_user_role.png](./img/ad_b2c_new_user_role.png)
-
-        4. Find and select Global administrator role.
-
-           ![ad_b2c_new_user_invite.png](./img/ad_b2c_new_user_invite.png)
-
-        5. Click invite.
-        6. Go to provided email address and accept invitation.
-
-    ---
-
-### 2.5 Multi factor authentication (Optional)
-
-#### Per user
-
-  1. Prepare your Azure AD B2C tenant
-  <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#prepare-your-azure-ad-b2c-tenant>
-  2. Add a Conditional Access policy
-  <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#add-a-conditional-access-policy>
-  3. Enable multi-factor authentication (Conditional)
-   <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#enable-multi-factor-authentication-optional>
-
-#### Per tenant
-
-   1. Enable multi-factor authentication (Always on)
-   <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#enable-multi-factor-authentication-optional>
-
-### 2.6 Continue tenant deployment
-
-```bash
-# script will ask for details about 2 new users that will created (system and tenant admin)
-cd /srv/spring22/tenants/{tenant_id} # if not already here
-./init_admins.py
-
-# previous script should switch us back to original subscriptions, we can verify that by running
-az account show --query id # should print id of our active subscription
-
-./apply.py
-   ```
-# 3. Connector
-Navigate to admin tool and manually add connector by uploading package.
-Fill in all required fields (timezone, connector settings, license, etc).
-**Generate new api key and save it for next script.**
-
-Create and apply new connector
-
-```bash
-cd /srv/spring22/tenants/{tenant_id}
-# script will prompt you for apikey
-./create_new_connector --name {connector_name} --type {connector_type - wxcc,genesys} --connector-version {version}
-cd ./connectors/{connector_name}
-./apply_connector.py
-```
+### 2.6 Authenticate AKS with an Azure container registry
+>
+>1. Navigate to the Azure portal and open Azure container registry resource.
+>2. Open the Access control (IAM) blade, click add and select Add role assignment.
+>
+>    ![acr_aim.png](./img/acr_iam.png)
+>3. In Role tab choose AcrPull.
+>
+>    ![add_role_assignment_role_tab.png](./img/add_role_assignment_role_tab.png)
+>4. In Members tab choose Managed Identity and Select members.
+>5. In Select managed identities choose subscription where the aks is created, User-assigned managed identity and select aks-agentpool.
+>
+>    ![add_role_assignment_members_tab.png](./img/add_role_assignment_members_tab.png)
+>
+>6. Configure ACR integration for existing AKS clusters \
+>  Attach ACR
+>
+>    ```bash
+>    az aks update -n aks -g {resource_group_name} --attach-acr tworing.azurecr.io
+>    ```
