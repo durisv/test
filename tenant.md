@@ -145,7 +145,7 @@
 
             1. Select "Sign in page" row
             2. Switch "Use custom page content" to "Yes"
-            3. Fill in "Custom page URI" with <https://<tenant_id>>.<domain>/templates/index.html
+            3. Fill in "Custom page URI" with <<https://<tenant_id>>>.<domain>/templates/index.html
             4. Click Save button
             5. Repeat previous steps for following rows:
 
@@ -174,46 +174,47 @@
     ---
 
 7. Multi factor authentication (Optional)
+    >
+    >    **Per user**
+    >
+    >    1. Prepare your Azure AD B2C tenant
+    >  <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#prepare-your-azure-ad-b2c-tenant>
+    >    2. Add a Conditional Access policy
+    >  <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#add-a-conditional-access-policy>
+    >    3. Enable multi-factor authentication (Conditional)
+    >   <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#enable-multi-factor-authentication-optional>
+    >
+    >    **Per tenant**
+    >
+    >    1. Enable multi-factor authentication (Always on)
+    >   <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#enable-multi-factor-authentication-optional>
+    >
 
-Per user
+8. Continue tenant deployment
 
-  1. Prepare your Azure AD B2C tenant
-  <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#prepare-your-azure-ad-b2c-tenant>
-  2. Add a Conditional Access policy
-  <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#add-a-conditional-access-policy>
-  3. Enable multi-factor authentication (Conditional)
-   <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#enable-multi-factor-authentication-optional>
+    ```bash
+    # script will ask for details about 2 new users that will created (system and tenant admin)
+    cd /srv/spring22/tenants/{tenant_id} # if not already here
+    ./init_admins.py
 
-#### Per tenant
+    # previous script should switch us back to original subscriptions, we can verify that by running
+    az account show --query id # should print id of our active subscription
 
-   1. Enable multi-factor authentication (Always on)
-   <https://docs.microsoft.com/en-us/azure/active-directory-b2c/conditional-access-user-flow?pivots=b2c-user-flow#enable-multi-factor-authentication-optional>
+    ./apply.py
+    ```
 
-### 2.6 Continue tenant deployment
+## Connector
 
-```bash
-# script will ask for details about 2 new users that will created (system and tenant admin)
-cd /srv/spring22/tenants/{tenant_id} # if not already here
-./init_admins.py
-
-# previous script should switch us back to original subscriptions, we can verify that by running
-az account show --query id # should print id of our active subscription
-
-./apply.py
-```
-
-## 3. Connector
-
-Navigate to admin tool and manually add connector by uploading package.
+1. Navigate to admin tool and manually add connector by uploading package.
 Fill in all required fields (timezone, connector settings, license, etc).
 **Generate new api key and save it for next script.**
 
-Create and apply new connector
+2. Create and apply new connector
 
-```bash
-cd /srv/spring22/tenants/{tenant_id}
-# script will prompt you for apikey
-./create_new_connector --name {connector_name} --type {connector_type - wxcc,genesys} --connector-version {version}
-cd ./connectors/{connector_name}
-./apply_connector.py
-```
+    ```bash
+    cd /srv/spring22/tenants/{tenant_id}
+    # script will prompt you for apikey
+    ./create_new_connector --name {connector_name} --type {connector_type - wxcc,genesys} --connector-version {version}
+    cd ./connectors/{connector_name}
+    ./apply_connector.py
+    ```
